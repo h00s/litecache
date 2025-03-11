@@ -1,4 +1,4 @@
-package main
+package litecache
 
 import (
 	"container/heap"

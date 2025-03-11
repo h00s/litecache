@@ -1,4 +1,4 @@
-package main
+package litecache
 
 func (eq *expiryQueue) Len() int           { return len(eq.entries) }
 func (eq *expiryQueue) Less(i, j int) bool { return eq.entries[i].ExpiresAt < eq.entries[j].ExpiresAt }
