@@ -5,14 +5,7 @@ import (
 	"time"
 )
 
-func NewLiteCache(cleanupInterval ...int) *LiteCache {
-	var interval int
-	if len(cleanupInterval) > 0 {
-		interval = cleanupInterval[0]
-	} else {
-		interval = 1
-	}
-
+func NewLiteCache() *LiteCache {
 	expirer := &expiryQueue{
 		entries:  make([]*ExpiryEntry, 0),
 		keyIndex: make(map[string]int),
@@ -21,7 +14,7 @@ func NewLiteCache(cleanupInterval ...int) *LiteCache {
 	cache := &LiteCache{
 		expirer: expirer,
 	}
-	go cache.startCleanup(interval)
+	go cache.startCleanup()
 	return cache
 }
 
@@ -67,26 +60,38 @@ func (c *LiteCache) Get(key string) ([]byte, bool) {
 	return nil, false
 }
 
-func (c *LiteCache) startCleanup(cleanupInterval int) {
-	ticker := time.NewTicker(time.Duration(cleanupInterval) * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		c.cleanup()
-	}
-}
-
-func (c *LiteCache) cleanup() {
-	now := time.Now().UnixNano()
-	c.expirer.mutex.Lock()
-	for c.expirer.Len() > 0 && c.expirer.entries[0].ExpiresAt <= now {
-		entry := heap.Pop(c.expirer).(*ExpiryEntry)
-		delete(c.expirer.keyIndex, entry.Key)
-		if val, ok := c.store.Load(entry.Key); ok {
-			cItem := val.(*CacheItem)
-			if cItem.Version == entry.Version && cItem.ExpiresAt > 0 {
-				c.store.Delete(entry.Key)
-			}
+func (c *LiteCache) startCleanup() {
+	const maxSleep = 1 * time.Minute
+	for {
+		c.expirer.mutex.Lock()
+		if c.expirer.Len() == 0 {
+			c.expirer.mutex.Unlock()
+			time.Sleep(maxSleep)
+			continue
 		}
+
+		now := time.Now().UnixNano()
+		nextExpiry := c.expirer.entries[0].ExpiresAt
+		if nextExpiry <= now {
+			for c.expirer.Len() > 0 && c.expirer.entries[0].ExpiresAt <= now {
+				entry := heap.Pop(c.expirer).(*ExpiryEntry)
+				delete(c.expirer.keyIndex, entry.Key)
+				if val, ok := c.store.Load(entry.Key); ok {
+					cItem := val.(*CacheItem)
+					if cItem.Version == entry.Version && cItem.ExpiresAt > 0 {
+						c.store.Delete(entry.Key)
+					}
+				}
+			}
+			c.expirer.mutex.Unlock()
+			continue
+		}
+
+		sleepDuration := time.Duration(nextExpiry - now)
+		if sleepDuration > maxSleep {
+			sleepDuration = maxSleep
+		}
+		c.expirer.mutex.Unlock()
+		time.Sleep(sleepDuration)
 	}
-	c.expirer.mutex.Unlock()
 }
