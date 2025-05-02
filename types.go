@@ -3,11 +3,11 @@ package litecache
 import (
 	"sync"
 
-	"github.com/go-raptor/components"
+	"github.com/go-raptor/raptor/v4"
 )
 
 type LiteCache struct {
-	components.Service
+	raptor.Service
 	store   sync.Map
 	expirer *expiryQueue
 }
